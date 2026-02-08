@@ -1,98 +1,87 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# PRiido
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+<br>
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## 개요
 
-## Description
+**PRiido**는 GitHub PR 정보를 기반으로 비개발자(경영진)가 이해하기 쉬운 개발 보고서를 자동으로 생성하는 서비스입니다.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+<br>
 
-## Project setup
+## 배경
 
-```bash
-$ pnpm install
-```
+매주 여러 저장소에서 병합된 PR을 확인하고 핵심 변경사항을 요약하는 작업은 필요 이상의 시간이 투입됩니다.
 
-## Compile and run the project
+또한 PR은 개발자 관점으로 작성되는 경우가 많아, 경영진에게 공유할 때는 추가적인 정리가 필요합니다.
 
-```bash
-# development
-$ pnpm run start
+<br>
 
-# watch mode
-$ pnpm run start:dev
+## 목표
 
-# production mode
-$ pnpm run start:prod
-```
+**PRiido**는 다음 과정을 자동화합니다.
 
-## Run tests
+- GitHub API로 병합된 PR을 수집합니다.
+- PR의 제목, 본문, 작성자, 병합 날짜, 변경 파일 수 등의 핵심 정보를 정리합니다.
+- Claude API를 통해 비개발자도 이해하기 쉬운 보고서를 생성합니다.
+- 보고서는 Markdown 형태로 제공됩니다.
 
-```bash
-# unit tests
-$ pnpm run test
+<br>
 
-# e2e tests
-$ pnpm run test:e2e
+## 사용 기술 스택
 
-# test coverage
-$ pnpm run test:cov
-```
+- 언어: TypeScript
+- 프레임워크: NestJS
+- 데이터베이스: PostgreSQL
+- AI: Claude
 
-## Deployment
+<br>
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## 의존성
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+- **`@nestjs/config`**
+  환경 변수(`.env`) 로드 및 설정 관리를 위한 모듈
 
-```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
-```
+<br>
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+- **`@nestjs/passport`, `passport`**
+  NestJS에서 인증 로직을 Guard/Strategy 기반으로 구성하기 위한 라이브러리
 
-## Resources
+<br>
 
-Check out a few resources that may come in handy when working with NestJS:
+- **`passport-github2`**
+  GitHub OAuth 로그인을 구현하기 위한 Passport 전략
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+<br>
 
-## Support
+- **`@nestjs/jwt`, `passport-jwt`**
+  자체 JWT 발급/검증 및 인증 처리를 위한 라이브러리
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+<br>
 
-## Stay in touch
+- **`cookie-parser`**
+  쿠키 기반으로 토큰을 전달하기 위해 사용
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+<br>
 
-## License
+- **`class-validator`, `class-transformer`**
+  요청 DTO 검증 및 입력 데이터 변환을 위해 사용
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+<br>
+
+- **`@nestjs/typeorm`, `typeorm`, `pg`**
+  PostgreSQL 연동 및 데이터 저장을 위한 드라이버와 ORM
+
+<br>
+
+- **`ioredis`**
+  Redis 클라이언트
+
+<br>
+
+- **`nanoid`**
+  충돌 가능성이 낮은 랜덤 UUID 생성을 위한 라이브러리
+
+<br>
+
+- **`@anthropic-ai/sdk`**
+  Claude API 호출을 위한 공식 SDK
