@@ -5,11 +5,11 @@ import { Strategy } from 'passport-github2';
 
 @Injectable()
 export class GithubStrategy extends PassportStrategy(Strategy, 'github') {
-  constructor(config: ConfigService) {
+  constructor(configService: ConfigService) {
     super({
-      clientID: config.get<string>('GITHUB_CLIENT_ID')!,
-      clientSecret: config.get<string>('GITHUB_CLIENT_SECRET')!,
-      callbackURL: config.get<string>('GITHUB_CALLBACK_URL')!,
+      clientID: configService.get<string>('GITHUB_CLIENT_ID')!,
+      clientSecret: configService.get<string>('GITHUB_CLIENT_SECRET')!,
+      callbackURL: configService.get<string>('GITHUB_CALLBACK_URL')!,
       scope: ['read:user', 'repo'],
     });
   }
