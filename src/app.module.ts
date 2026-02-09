@@ -14,6 +14,8 @@ import { PullRequestModule } from './pull-request/pull-request.module';
 import { PullRequest } from './pull-request/entities/pull-request.entity';
 import { PullRequestCommit } from './pull-request/entities/pull-request-commit.entity';
 import { PullRequestFile } from './pull-request/entities/pull-request-file.entity';
+import { ReportModule } from './report/report.module';
+import { Report } from './report/entities/report.entity';
 
 @Module({
   imports: [
@@ -39,6 +41,7 @@ import { PullRequestFile } from './pull-request/entities/pull-request-file.entit
           PullRequest,
           PullRequestCommit,
           PullRequestFile,
+          Report,
         ],
         synchronize: false,
         logging: false,
@@ -50,6 +53,7 @@ import { PullRequestFile } from './pull-request/entities/pull-request-file.entit
     GithubModule,
     RepositoryModule,
     PullRequestModule,
+    ReportModule,
   ],
 })
 export class AppModule {}
