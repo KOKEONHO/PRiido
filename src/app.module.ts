@@ -10,6 +10,10 @@ import { Member } from './member/entities/member.entity';
 import { GithubAccessToken } from './member/entities/github-access-token.entity';
 import { Repository } from './repository/entities/repository.entity';
 import { MemberRepository } from './repository/entities/member-repository.entity';
+import { PullRequestModule } from './pull-request/pull-request.module';
+import { PullRequest } from './pull-request/entities/pull-request.entity';
+import { PullRequestCommit } from './pull-request/entities/pull-request-commit.entity';
+import { PullRequestFile } from './pull-request/entities/pull-request-file.entity';
 
 @Module({
   imports: [
@@ -27,7 +31,15 @@ import { MemberRepository } from './repository/entities/member-repository.entity
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
-        entities: [Member, GithubAccessToken, Repository, MemberRepository],
+        entities: [
+          Member,
+          GithubAccessToken,
+          Repository,
+          MemberRepository,
+          PullRequest,
+          PullRequestCommit,
+          PullRequestFile,
+        ],
         synchronize: false,
         logging: false,
       }),
@@ -37,6 +49,7 @@ import { MemberRepository } from './repository/entities/member-repository.entity
     AuthModule,
     GithubModule,
     RepositoryModule,
+    PullRequestModule,
   ],
 })
 export class AppModule {}
