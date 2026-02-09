@@ -55,4 +55,13 @@ export class MemberService {
       memberId: input.memberId,
     });
   }
+
+  async getGithubAccessToken(memberId: string) {
+    const row = await this.githubAccessTokenRepository.findOne({
+      where: { memberId: String(memberId) },
+      select: { accessToken: true },
+    });
+
+    return row?.accessToken ?? null;
+  }
 }

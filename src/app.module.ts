@@ -4,8 +4,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuthModule } from './auth/auth.module';
 import { MemberModule } from './member/member.module';
+import { GithubModule } from './github/github.module';
+import { RepositoryModule } from './repository/repository.module';
 import { Member } from './member/entities/member.entity';
 import { GithubAccessToken } from './member/entities/github-access-token.entity';
+import { Repository } from './repository/entities/repository.entity';
+import { MemberRepository } from './repository/entities/member-repository.entity';
 
 @Module({
   imports: [
@@ -23,7 +27,7 @@ import { GithubAccessToken } from './member/entities/github-access-token.entity'
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
-        entities: [Member, GithubAccessToken],
+        entities: [Member, GithubAccessToken, Repository, MemberRepository],
         synchronize: false,
         logging: false,
       }),
@@ -31,6 +35,8 @@ import { GithubAccessToken } from './member/entities/github-access-token.entity'
 
     MemberModule,
     AuthModule,
+    GithubModule,
+    RepositoryModule,
   ],
 })
 export class AppModule {}
