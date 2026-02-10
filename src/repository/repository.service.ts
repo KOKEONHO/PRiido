@@ -1,3 +1,4 @@
+// src/repository/repository.service.ts
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository as TypeOrmRepository } from 'typeorm';
@@ -7,31 +8,31 @@ import { Repository } from './entities/repository.entity';
 import { MemberRepository } from './entities/member-repository.entity';
 import { RegisterRepositoryDto } from './dto/register-repository.dto';
 import { MemberService } from 'src/member/member.service';
-import { GithubService, GithubReposPageDto } from 'src/github/github.service';
+import {
+  GithubService,
+  type GithubReposPageDto,
+  type GithubSourcesDto,
+  type GithubRepoDto,
+} from 'src/github/github.service';
 
 type PageOptions = {
   first: number;
   after: string | null;
 };
 
-// ✅ Nest SSE에서 쓰기 좋은 이벤트 타입 (DOM MessageEvent 아님!)
-export type SseEvent<T = any> = {
-  data: T;
-  event?: string;
-  id?: string;
-  retry?: number;
+export type RepoStreamStart = { type: 'start' };
+export type RepoStreamItem = {
+  type: 'repo';
+  item: GithubRepoDto;
+  sent: number;
 };
-
-type RepoStreamStart = { type: 'start' };
-type RepoStreamItem = { type: 'repo'; item: any; sent: number };
-type RepoStreamCursor = {
+export type RepoStreamCursor = {
   type: 'cursor';
   endCursor: string | null;
   hasNextPage: boolean;
 };
-type RepoStreamEnd = { type: 'end'; total: number };
-
-type RepoStreamPayload =
+export type RepoStreamEnd = { type: 'end'; total: number };
+export type RepoStreamPayload =
   | RepoStreamStart
   | RepoStreamItem
   | RepoStreamCursor
@@ -48,53 +49,122 @@ export class RepositoryService {
     private readonly githubService: GithubService,
   ) {}
 
-  async getMyGithubRepos(
-    memberId: string,
-    opts: PageOptions,
-  ): Promise<GithubReposPageDto> {
+  private normalizePageOptions(opts: PageOptions): PageOptions {
+    const firstRaw = Number.isFinite(opts.first) ? opts.first : 30;
+    const first = Math.max(1, Math.min(firstRaw, 100));
+    const after = opts.after ?? null;
+    return { first, after };
+  }
+
+  private async getAccessTokenOrThrow(memberId: string): Promise<string> {
     const token = await this.memberService.getGithubAccessToken(
       String(memberId),
     );
     if (!token)
       throw new UnauthorizedException('GitHub access token not found');
-
-    return this.githubService.listUserReposPage(token, opts);
+    return token;
   }
 
-  // ✅ 여기 반환 타입 변경: Observable<MessageEvent> -> Observable<SseEvent<...>>
-  streamMyGithubRepos(
+  /**
+   * ✅ 1) sources: 내 계정 + org 목록 (read:org 필요)
+   */
+  async getGithubSources(memberId: string): Promise<GithubSourcesDto> {
+    const token = await this.getAccessTokenOrThrow(memberId);
+    return this.githubService.listSources(token);
+  }
+
+  /**
+   * ✅ 2-A) 내 계정 레포 - JSON 페이지
+   */
+  async getViewerReposPage(
     memberId: string,
     opts: PageOptions,
-  ): Observable<SseEvent<RepoStreamPayload>> {
-    return new Observable<SseEvent<RepoStreamPayload>>((subscriber) => {
-      (async () => {
-        const token = await this.memberService.getGithubAccessToken(
-          String(memberId),
-        );
-        if (!token)
-          throw new UnauthorizedException('GitHub access token not found');
+  ): Promise<GithubReposPageDto> {
+    const token = await this.getAccessTokenOrThrow(memberId);
+    const normalized = this.normalizePageOptions(opts);
+    return this.githubService.listViewerReposPage(token, normalized);
+  }
 
-        subscriber.next({ data: { type: 'start' } });
+  /**
+   * ✅ 2-B) 조직 레포 - JSON 페이지
+   */
+  async getOrgReposPage(
+    memberId: string,
+    orgLogin: string,
+    opts: PageOptions,
+  ): Promise<GithubReposPageDto> {
+    const token = await this.getAccessTokenOrThrow(memberId);
+    const normalized = this.normalizePageOptions(opts);
+    return this.githubService.listOrgReposPage(token, orgLogin, normalized);
+  }
 
-        const page = await this.githubService.listUserReposPage(token, opts);
+  /**
+   * ✅ SSE 공통: page.items를 한 건씩 push + 마지막에 cursor/end
+   * - 주의: MessageEvent는 DOM 타입 말고 Nest 타입을 써야 함
+   */
+  private streamPageAsSse(
+    loader: () => Promise<GithubReposPageDto>,
+  ): Observable<import('@nestjs/common').MessageEvent> {
+    return new Observable<import('@nestjs/common').MessageEvent>(
+      (subscriber) => {
+        (async () => {
+          subscriber.next({
+            data: { type: 'start' } satisfies RepoStreamStart,
+          });
 
-        let sent = 0;
-        for (const item of page.items) {
-          sent += 1;
-          subscriber.next({ data: { type: 'repo', item, sent } });
-        }
+          const page = await loader();
 
-        subscriber.next({
-          data: {
-            type: 'cursor',
-            endCursor: page.pageInfo.endCursor,
-            hasNextPage: page.pageInfo.hasNextPage,
-          },
-        });
+          let sent = 0;
+          for (const item of page.items) {
+            sent += 1;
+            subscriber.next({
+              data: { type: 'repo', item, sent } satisfies RepoStreamItem,
+            });
+          }
 
-        subscriber.next({ data: { type: 'end', total: sent } });
-        subscriber.complete();
-      })().catch((err) => subscriber.error(err));
+          subscriber.next({
+            data: {
+              type: 'cursor',
+              endCursor: page.pageInfo.endCursor,
+              hasNextPage: page.pageInfo.hasNextPage,
+            } satisfies RepoStreamCursor,
+          });
+
+          subscriber.next({
+            data: { type: 'end', total: sent } satisfies RepoStreamEnd,
+          });
+          subscriber.complete();
+        })().catch((err) => subscriber.error(err));
+      },
+    );
+  }
+
+  /**
+   * ✅ 2-A) 내 계정 레포 - SSE
+   */
+  streamViewerRepos(
+    memberId: string,
+    opts: PageOptions,
+  ): Observable<import('@nestjs/common').MessageEvent> {
+    const normalized = this.normalizePageOptions(opts);
+    return this.streamPageAsSse(async () => {
+      const token = await this.getAccessTokenOrThrow(memberId);
+      return this.githubService.listViewerReposPage(token, normalized);
+    });
+  }
+
+  /**
+   * ✅ 2-B) 조직 레포 - SSE
+   */
+  streamOrgRepos(
+    memberId: string,
+    orgLogin: string,
+    opts: PageOptions,
+  ): Observable<import('@nestjs/common').MessageEvent> {
+    const normalized = this.normalizePageOptions(opts);
+    return this.streamPageAsSse(async () => {
+      const token = await this.getAccessTokenOrThrow(memberId);
+      return this.githubService.listOrgReposPage(token, orgLogin, normalized);
     });
   }
 
@@ -105,9 +175,10 @@ export class RepositoryService {
 
     for (const item of items ?? []) {
       const githubRepoId = String(item.githubRepoId);
-      const fullName = item.fullName;
+      const fullName = item.fullName; // owner/repo
       const name = fullName.includes('/') ? fullName.split('/')[1] : fullName;
 
+      // 1) repository upsert (by github_repo_id)
       let repo = await this.repoTable.findOne({ where: { githubRepoId } });
 
       if (!repo) {
@@ -130,6 +201,7 @@ export class RepositoryService {
         repo = await this.repoTable.save(repo);
       }
 
+      // 2) member_repository upsert (by member_id + repository_id)
       const linkKey = {
         memberId: String(memberId),
         repositoryId: String(repo.id),
