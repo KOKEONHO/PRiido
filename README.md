@@ -85,3 +85,7 @@
 
 - **`@anthropic-ai/sdk`**
   Claude API 호출을 위한 공식 SDK
+
+## ERD
+
+![PRiido ERD](./images/priido_erd.png)
