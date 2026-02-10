@@ -1,12 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AWS_REGION="${AWS_REGION:-ap-northeast-2}"
-ECR_REPOSITORY="${ECR_REPOSITORY:-priido-api}"
+ENV_FILE="/home/ec2-user/app/.env"
 
-CONTAINER_NAME="${CONTAINER_NAME:-priido-api}"
-HOST_PORT="${HOST_PORT:-3000}"
-CONTAINER_PORT="${CONTAINER_PORT:-3000}"
+if [ ! -f "${ENV_FILE}" ]; then
+  echo "[start] ERROR: env file not found: ${ENV_FILE}" >&2
+  exit 1
+fi
+
+set -a
+. "${ENV_FILE}"
+set +a
+
+: "${AWS_REGION:?AWS_REGION is required in .env}"
+: "${ECR_REPOSITORY:?ECR_REPOSITORY is required in .env}"
+: "${CONTAINER_NAME:?CONTAINER_NAME is required in .env}"
+: "${PORT:?PORT is required in .env}"
+
+HOST_PORT="${HOST_PORT:-$PORT}"
+CONTAINER_PORT="${CONTAINER_PORT:-$PORT}"
 
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
@@ -26,6 +38,7 @@ fi
 
 docker run -d \
   --name "${CONTAINER_NAME}" \
+  --env-file "${ENV_FILE}" \
   -p "${HOST_PORT}:${CONTAINER_PORT}" \
   --restart unless-stopped \
   "${IMAGE_URI}"
