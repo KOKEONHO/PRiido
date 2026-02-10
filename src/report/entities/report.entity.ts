@@ -13,4 +13,7 @@ export class Report {
 
   @Column({ name: 'content', type: 'text' })
   content: string;
+
+  @Column({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
 }

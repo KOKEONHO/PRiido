@@ -64,6 +64,7 @@ export class ReportService {
     reportId: string;
     contentMarkdown: string;
     model: string;
+    createdAt: string; // ✅ 프론트 편의상 ISO 문자열로 리턴
   }> {
     const { memberId, repositoryId } = input;
 
@@ -82,7 +83,7 @@ export class ReportService {
       );
     }
 
-    // 3) PR들 로드 (선택된 prIds가 이 repo 소속인지 검증 포함)
+    // 3) PR들 로드
     const prIds = Array.from(new Set(input.prIds)).filter(Boolean);
     if (!prIds.length) throw new BadRequestException('prIds is empty');
 
@@ -143,7 +144,7 @@ export class ReportService {
       order: { changes: 'DESC' as any } as any,
     });
 
-    // 5) PR별로 그룹핑
+    // 5) PR별 그룹핑
     const commitsByPrId = new Map<string, PullRequestCommit[]>();
     for (const c of commits) {
       const k = String((c as any).pullRequestId);
@@ -160,7 +161,7 @@ export class ReportService {
       filesByPrId.set(k, list);
     }
 
-    // 6) 기간: 선택 PR들의 mergedAtGithub 기준
+    // 6) 기간
     const mergedDates = prs
       .map((p) =>
         (p as any).mergedAtGithub ? new Date((p as any).mergedAtGithub) : null,
@@ -175,7 +176,7 @@ export class ReportService {
           )}`
         : 'YYYY.MM.DD ~ YYYY.MM.DD';
 
-    // 7) 헤더 4개 항목 만들기
+    // 7) 헤더
     const projectName =
       (repo as any).githubRepoName ?? (repo as any).githubRepoFullName ?? '';
 
@@ -201,7 +202,7 @@ export class ReportService {
       '',
     ].join('\n');
 
-    // 8) Claude 입력 구성
+    // 8) Claude 입력
     const claudeInput = {
       headerMarkdown,
       repoFullName: (repo as any).githubRepoFullName,
@@ -260,7 +261,7 @@ export class ReportService {
     const contentMarkdown =
       await this.claude.generateWeeklyReportMarkdown(claudeInput);
 
-    // 10) report 테이블에 저장 (DDL: createdAt/updatedAt 없음)
+    // 10) 저장 (created_at은 DB default now())
     const entity = this.reportTable.create({
       memberId: String(memberId),
       repositoryId: String(repositoryId),
@@ -273,12 +274,15 @@ export class ReportService {
       reportId: String((saved as any).id),
       contentMarkdown,
       model: process.env.CLAUDE_MODEL ?? 'claude-opus-4-6',
+      createdAt: (saved as any).createdAt
+        ? new Date((saved as any).createdAt).toISOString()
+        : new Date().toISOString(),
     };
   }
 
-  // ✅ (repo 기준) 보고서 목록 (DDL: createdAt/updatedAt 없음)
+  // ✅ 목록: createdAt 포함
   async listReports(input: ListReportsInput): Promise<{
-    items: Array<{ id: string; repositoryId: string }>;
+    items: Array<{ id: string; repositoryId: string; createdAt: string }>;
     nextCursor: string | null;
   }> {
     const { memberId, repositoryId, limit, cursor } = input;
@@ -290,7 +294,7 @@ export class ReportService {
 
     const rows = await this.reportTable.find({
       where,
-      select: ['id', 'repositoryId'] as any, // 목록에서는 content 제외
+      select: ['id', 'repositoryId', 'createdAt'] as any,
       order: { id: 'DESC' as any } as any,
       take: limit,
     });
@@ -302,22 +306,26 @@ export class ReportService {
       items: rows.map((r) => ({
         id: String((r as any).id),
         repositoryId: String((r as any).repositoryId),
+        createdAt: (r as any).createdAt
+          ? new Date((r as any).createdAt).toISOString()
+          : new Date().toISOString(),
       })),
       nextCursor,
     };
   }
 
-  // ✅ 보고서 상세 (DDL: createdAt/updatedAt 없음)
+  // ✅ 상세: createdAt 포함
   async getReport(input: GetReportInput): Promise<{
     id: string;
     repositoryId: string;
     contentMarkdown: string;
+    createdAt: string;
   }> {
     const { memberId, reportId } = input;
 
     const report = await this.reportTable.findOne({
       where: { id: String(reportId) } as any,
-      select: ['id', 'repositoryId', 'content'] as any,
+      select: ['id', 'repositoryId', 'content', 'createdAt'] as any,
     });
 
     if (!report) throw new NotFoundException('Report not found');
@@ -328,6 +336,9 @@ export class ReportService {
       id: String((report as any).id),
       repositoryId: String((report as any).repositoryId),
       contentMarkdown: String((report as any).content),
+      createdAt: (report as any).createdAt
+        ? new Date((report as any).createdAt).toISOString()
+        : new Date().toISOString(),
     };
   }
 
