@@ -1,44 +1,129 @@
 import { Injectable } from '@nestjs/common';
 
-type GithubRepoApiItem = {
-  id: number;
-  full_name: string; // owner/repo
-  html_url: string;
+export type GithubRepoDto = {
+  githubRepoId: string; // GraphQL databaseId
+  fullName: string; // owner/repo
+  htmlUrl: string;
   private: boolean;
+};
+
+export type GithubReposPageDto = {
+  items: GithubRepoDto[];
+  pageInfo: {
+    hasNextPage: boolean;
+    endCursor: string | null;
+  };
+};
+
+type GraphqlResponse = {
+  data?: {
+    viewer?: {
+      repositories?: {
+        nodes?: Array<{
+          databaseId: number | null;
+          nameWithOwner: string;
+          url: string;
+          isPrivate: boolean;
+        }>;
+        pageInfo?: {
+          hasNextPage: boolean;
+          endCursor: string | null;
+        };
+      };
+    };
+  };
+  errors?: Array<{ message: string }>;
 };
 
 @Injectable()
 export class GithubService {
-  async listUserRepos(accessToken: string) {
-    const url = new URL('https://api.github.com/user/repos');
-    url.searchParams.set('per_page', '100');
-    url.searchParams.set('page', '1'); // ✅ PRWR 방식: 100개만
-    url.searchParams.set('sort', 'updated');
-    url.searchParams.set('direction', 'desc');
+  private readonly endpoint = 'https://api.github.com/graphql';
 
-    const res = await fetch(url.toString(), {
-      method: 'GET',
+  private readonly query = `
+    query($first: Int!, $after: String) {
+      viewer {
+        repositories(
+          first: $first,
+          after: $after,
+          orderBy: { field: UPDATED_AT, direction: DESC },
+          ownerAffiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER]
+        ) {
+          nodes {
+            databaseId
+            nameWithOwner
+            url
+            isPrivate
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    }
+  `;
+
+  /**
+   * ✅ GraphQL 커서 기반: first개씩 + pageInfo(endCursor/hasNextPage)
+   * - accessToken은 OAuth Access Token
+   */
+  async listUserReposPage(
+    accessToken: string,
+    opts: { first: number; after: string | null },
+  ): Promise<GithubReposPageDto> {
+    const first = Math.max(1, Math.min(opts.first ?? 30, 100));
+    const after = opts.after ?? null;
+
+    const res = await fetch(this.endpoint, {
+      method: 'POST',
       headers: {
-        Authorization: `token ${accessToken}`,
+        Authorization: `Bearer ${accessToken}`, // GraphQL은 Bearer 권장
         Accept: 'application/vnd.github+json',
+        'Content-Type': 'application/json',
         'X-GitHub-Api-Version': '2022-11-28',
         'User-Agent': 'priido',
       },
+      body: JSON.stringify({
+        query: this.query,
+        variables: { first, after },
+      }),
     });
 
+    const text = await res.text().catch(() => '');
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`GitHub API error: ${res.status} ${text}`);
+      throw new Error(`GitHub GraphQL error: ${res.status} ${text}`);
     }
 
-    const data = (await res.json()) as GithubRepoApiItem[];
+    const json = (text ? JSON.parse(text) : {}) as GraphqlResponse;
 
-    // ✅ 프론트가 바로 POST /repositories에 보낼 수 있게 DTO 형태로 매핑
-    return data.map((r) => ({
-      githubRepoId: String(r.id),
-      fullName: r.full_name,
-      htmlUrl: r.html_url,
-      private: r.private,
-    }));
+    if (json.errors?.length) {
+      throw new Error(
+        `GitHub GraphQL error: ${json.errors.map((e) => e.message).join(' | ')}`,
+      );
+    }
+
+    const repoConn = json.data?.viewer?.repositories;
+    const nodes = repoConn?.nodes ?? [];
+    const pageInfo = repoConn?.pageInfo ?? {
+      hasNextPage: false,
+      endCursor: null,
+    };
+
+    const items: GithubRepoDto[] = nodes
+      .filter((n) => typeof n.databaseId === 'number' && n.databaseId !== null)
+      .map((n) => ({
+        githubRepoId: String(n.databaseId),
+        fullName: n.nameWithOwner,
+        htmlUrl: n.url,
+        private: n.isPrivate,
+      }));
+
+    return {
+      items,
+      pageInfo: {
+        hasNextPage: !!pageInfo.hasNextPage,
+        endCursor: pageInfo.endCursor ?? null,
+      },
+    };
   }
 }

@@ -1,6 +1,16 @@
-import { Controller, Get, Post, Body, Req, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Req,
+  UseGuards,
+  Sse,
+  Query,
+} from '@nestjs/common';
+import { Observable } from 'rxjs';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RepositoryService } from './repository.service';
+import { RepositoryService, SseEvent } from './repository.service';
 import { RegisterRepositoryDto } from './dto/register-repository.dto';
 
 @Controller('repositories')
@@ -9,9 +19,38 @@ export class RepositoryController {
 
   @Get('github')
   @UseGuards(JwtAuthGuard)
-  async getGithubRepos(@Req() req: any) {
-    const memberId = req.user.memberId;
-    return this.repositoryService.getMyGithubRepos(memberId);
+  async getGithubRepos(
+    @Req() req: any,
+    @Query('first') first?: string,
+    @Query('after') after?: string,
+  ) {
+    const memberId = req.user.memberId as string;
+    const firstNum = Number(first ?? '30');
+
+    return this.repositoryService.getMyGithubRepos(memberId, {
+      first: Number.isFinite(firstNum)
+        ? Math.max(1, Math.min(firstNum, 100))
+        : 30,
+      after: after ?? null,
+    });
+  }
+
+  @Sse('github/stream')
+  @UseGuards(JwtAuthGuard)
+  streamGithubRepos(
+    @Req() req: any,
+    @Query('first') first?: string,
+    @Query('after') after?: string,
+  ): Observable<SseEvent<any>> {
+    const memberId = req.user.memberId as string;
+    const firstNum = Number(first ?? '30');
+
+    return this.repositoryService.streamMyGithubRepos(memberId, {
+      first: Number.isFinite(firstNum)
+        ? Math.max(1, Math.min(firstNum, 100))
+        : 30,
+      after: after ?? null,
+    });
   }
 
   @Post()
