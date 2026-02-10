@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ENV_FILE="/home/ec2-user/app/.env"
+DOCKER_NETWORK="${DOCKER_NETWORK:-priido-net}"
 
 if [ ! -f "${ENV_FILE}" ]; then
   echo "[start] ERROR: env file not found: ${ENV_FILE}" >&2
@@ -24,6 +25,7 @@ ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
 
+# ===== DB SSL (RDS CA mount) =====
 DB_SSL_ENABLED="${DB_SSL_ENABLED:-true}"
 
 CA_HOST_PATH="${DB_SSL_CA_HOST_PATH:-/etc/ssl/rds-ca/global-bundle.pem}"
@@ -46,6 +48,12 @@ if [ "${DB_SSL_ENABLED}" = "true" ] || [ "${DB_SSL_ENABLED}" = "TRUE" ]; then
   )
 fi
 
+# ===== Ensure docker network exists =====
+if ! docker network inspect "${DOCKER_NETWORK}" >/dev/null 2>&1; then
+  echo "[start] docker network not found: ${DOCKER_NETWORK}. creating..."
+  docker network create "${DOCKER_NETWORK}" >/dev/null
+fi
+
 echo "[start] login to ecr: ${ECR_REGISTRY}"
 aws ecr get-login-password --region "${AWS_REGION}" \
   | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
@@ -60,6 +68,7 @@ fi
 
 docker run -d \
   --name "${CONTAINER_NAME}" \
+  --network "${DOCKER_NETWORK}" \
   --env-file "${ENV_FILE}" \
   "${DOCKER_SSL_ARGS[@]}" \
   -p "${HOST_PORT}:${CONTAINER_PORT}" \
