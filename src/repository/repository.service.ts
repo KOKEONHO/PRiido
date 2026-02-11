@@ -2,7 +2,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository as TypeOrmRepository } from 'typeorm';
-import { Observable } from 'rxjs';
 
 import { Repository } from './entities/repository.entity';
 import { MemberRepository } from './entities/member-repository.entity';
@@ -12,31 +11,12 @@ import {
   GithubService,
   type GithubReposPageDto,
   type GithubSourcesDto,
-  type GithubRepoDto,
 } from 'src/github/github.service';
 
 type PageOptions = {
   first: number;
   after: string | null;
 };
-
-export type RepoStreamStart = { type: 'start' };
-export type RepoStreamItem = {
-  type: 'repo';
-  item: GithubRepoDto;
-  sent: number;
-};
-export type RepoStreamCursor = {
-  type: 'cursor';
-  endCursor: string | null;
-  hasNextPage: boolean;
-};
-export type RepoStreamEnd = { type: 'end'; total: number };
-export type RepoStreamPayload =
-  | RepoStreamStart
-  | RepoStreamItem
-  | RepoStreamCursor
-  | RepoStreamEnd;
 
 @Injectable()
 export class RepositoryService {
@@ -74,7 +54,7 @@ export class RepositoryService {
   }
 
   /**
-   * ✅ 2-A) 내 계정 레포 - JSON 페이지
+   * ✅ 2-A) 내 계정 레포 - JSON 페이지 (GitHub GraphQL 커서 페이징)
    */
   async getViewerReposPage(
     memberId: string,
@@ -86,7 +66,7 @@ export class RepositoryService {
   }
 
   /**
-   * ✅ 2-B) 조직 레포 - JSON 페이지
+   * ✅ 2-B) 조직 레포 - JSON 페이지 (GitHub GraphQL 커서 페이징)
    */
   async getOrgReposPage(
     memberId: string,
@@ -97,78 +77,6 @@ export class RepositoryService {
     const normalized = this.normalizePageOptions(opts);
     return this.githubService.listOrgReposPage(token, orgLogin, normalized);
   }
-
-  /**
-   * ✅ SSE 공통: page.items를 한 건씩 push + 마지막에 cursor/end
-   * - 주의: MessageEvent는 DOM 타입 말고 Nest 타입을 써야 함
-   */
-  private streamPageAsSse(
-    loader: () => Promise<GithubReposPageDto>,
-  ): Observable<import('@nestjs/common').MessageEvent> {
-    return new Observable<import('@nestjs/common').MessageEvent>(
-      (subscriber) => {
-        (async () => {
-          subscriber.next({
-            data: { type: 'start' } satisfies RepoStreamStart,
-          });
-
-          const page = await loader();
-
-          let sent = 0;
-          for (const item of page.items) {
-            sent += 1;
-            subscriber.next({
-              data: { type: 'repo', item, sent } satisfies RepoStreamItem,
-            });
-          }
-
-          subscriber.next({
-            data: {
-              type: 'cursor',
-              endCursor: page.pageInfo.endCursor,
-              hasNextPage: page.pageInfo.hasNextPage,
-            } satisfies RepoStreamCursor,
-          });
-
-          subscriber.next({
-            data: { type: 'end', total: sent } satisfies RepoStreamEnd,
-          });
-          subscriber.complete();
-        })().catch((err) => subscriber.error(err));
-      },
-    );
-  }
-
-  /**
-   * ✅ 2-A) 내 계정 레포 - SSE
-   */
-  streamViewerRepos(
-    memberId: string,
-    opts: PageOptions,
-  ): Observable<import('@nestjs/common').MessageEvent> {
-    const normalized = this.normalizePageOptions(opts);
-    return this.streamPageAsSse(async () => {
-      const token = await this.getAccessTokenOrThrow(memberId);
-      return this.githubService.listViewerReposPage(token, normalized);
-    });
-  }
-
-  /**
-   * ✅ 2-B) 조직 레포 - SSE
-   */
-  streamOrgRepos(
-    memberId: string,
-    orgLogin: string,
-    opts: PageOptions,
-  ): Observable<import('@nestjs/common').MessageEvent> {
-    const normalized = this.normalizePageOptions(opts);
-    return this.streamPageAsSse(async () => {
-      const token = await this.getAccessTokenOrThrow(memberId);
-      return this.githubService.listOrgReposPage(token, orgLogin, normalized);
-    });
-  }
-
-  // ====== 아래는 네 원본 로직 그대로 ======
 
   async registerGithubRepos(memberId: string, items: RegisterRepositoryDto[]) {
     const results: { repositoryId: string; githubRepoId: string }[] = [];
