@@ -2,8 +2,10 @@ import {
   Injectable,
   BadRequestException,
   ForbiddenException,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Observable } from 'rxjs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository as TypeOrmRepository } from 'typeorm';
 
@@ -27,6 +29,40 @@ type ListOutput = {
   items: PullRequest[];
   nextCursor: { mergedAt: string; prNumber: number } | null;
   hasNext: boolean;
+};
+
+type PullRequestStreamStart = { type: 'start' };
+type PullRequestStreamItem = {
+  type: 'pr';
+  item: PullRequest;
+  sent: number;
+  source: 'db' | 'github';
+};
+type PullRequestStreamCursor = {
+  type: 'cursor';
+  nextCursor: { mergedAt: string; prNumber: number } | null;
+  hasNext: boolean;
+};
+type PullRequestStreamEnd = { type: 'end'; total: number };
+
+type PullRequestSyncStreamStart = {
+  type: 'start';
+  since: string | null;
+  candidates: number;
+};
+type PullRequestSyncStreamProgress = {
+  type: 'progress';
+  synced: number;
+  total: number;
+  prNumber: number;
+  item: PullRequest;
+};
+type PullRequestSyncStreamEnd = {
+  type: 'end';
+  synced: number;
+  total: number;
+  since: string | null;
+  lastSyncedMergedAt: string | null;
 };
 
 // ---- GitHub types (필요 최소) ----
@@ -145,6 +181,406 @@ export class PullRequestService {
         : null;
 
     return { items, nextCursor, hasNext };
+  }
+
+  streamList(
+    input: ListInput,
+  ): Observable<import('@nestjs/common').MessageEvent> {
+    return new Observable<import('@nestjs/common').MessageEvent>(
+      (subscriber) => {
+        (async () => {
+          await this.assertRepoAccess(input.memberId, input.repositoryId);
+
+          const cursor = this.validateCursor(
+            input.cursorMergedAt,
+            input.cursorPrNumber,
+          );
+
+          const viewLimit = input.limit;
+          const target = viewLimit + 1;
+
+          let sent = 0;
+          let hasNext = false;
+          let latestPage = await this.fetchDbPage(
+            input.repositoryId,
+            target,
+            cursor,
+          );
+
+          const emittedIds = new Set<string>();
+
+          const emitFromDb = async (source: 'db' | 'github') => {
+            latestPage = await this.fetchDbPage(
+              input.repositoryId,
+              target,
+              cursor,
+            );
+
+            if (latestPage.items.length > viewLimit) {
+              hasNext = true;
+            }
+
+            for (const pr of latestPage.items) {
+              const id = String(pr.id);
+              if (emittedIds.has(id)) continue;
+
+              if (sent >= viewLimit) {
+                hasNext = true;
+                break;
+              }
+
+              sent += 1;
+              emittedIds.add(id);
+
+              subscriber.next({
+                data: {
+                  type: 'pr',
+                  item: pr,
+                  sent,
+                  source,
+                } satisfies PullRequestStreamItem,
+              });
+            }
+          };
+
+          subscriber.next({
+            data: { type: 'start' } satisfies PullRequestStreamStart,
+          });
+
+          await emitFromDb('db');
+
+          if (!hasNext) {
+            const beforeIso = this.pickBeforeMergedAtIso(latestPage, cursor);
+            const { fullName, token } = await this.getRepoAndTokenOrThrow(
+              input.memberId,
+              input.repositoryId,
+            );
+
+            const search = await this.searchMergedPulls(token, fullName, {
+              mergedBefore: beforeIso,
+              perPage: Math.min(100, Math.max(1, target)),
+              page: 1,
+            });
+
+            const prNumbers = Array.from(
+              new Set(
+                (search.items ?? [])
+                  .filter((x) => !!x.pull_request)
+                  .map((x) => x.number),
+              ),
+            );
+
+            for (const prNumber of prNumbers) {
+              await this.upsertSinglePullWithExtras(
+                input.repositoryId,
+                fullName,
+                token,
+                prNumber,
+              );
+
+              await emitFromDb('github');
+
+              if (hasNext) {
+                break;
+              }
+            }
+
+            await this.updateRepoLastSyncedMergedAtFromDb(input.repositoryId);
+            latestPage = await this.fetchDbPage(
+              input.repositoryId,
+              target,
+              cursor,
+            );
+            if (latestPage.items.length > viewLimit) hasNext = true;
+          }
+
+          latestPage = await this.fetchDbPage(
+            input.repositoryId,
+            target,
+            cursor,
+          );
+          const pageItems = latestPage.items.slice(
+            0,
+            Math.min(viewLimit, latestPage.items.length),
+          );
+          const cursorItem = pageItems.length
+            ? pageItems[pageItems.length - 1]
+            : null;
+
+          let nextCursor: { mergedAt: string; prNumber: number } | null = null;
+          if (cursorItem?.mergedAtGithub) {
+            nextCursor = {
+              mergedAt: new Date(cursorItem.mergedAtGithub).toISOString(),
+              prNumber: cursorItem.prNumber,
+            };
+          }
+
+          subscriber.next({
+            data: {
+              type: 'cursor',
+              nextCursor,
+              hasNext,
+            } satisfies PullRequestStreamCursor,
+          });
+
+          subscriber.next({
+            data: { type: 'end', total: sent } satisfies PullRequestStreamEnd,
+          });
+          subscriber.complete();
+        })().catch((err) => subscriber.error(err));
+      },
+    );
+  }
+
+  /**
+   * ✅ 상단 신규 동기화:
+   * - repository.last_synced_merged_at 이후(>=) 머지된 PR만 GitHub에서 조회
+   * - PR + commits/files upsert
+   * - repository.last_synced_merged_at 갱신
+   */
+  async syncNewlyMergedPulls(memberId: string, repositoryId: string) {
+    await this.assertRepoAccess(memberId, repositoryId);
+
+    const { repo, fullName, token } = await this.getRepoAndTokenOrThrow(
+      memberId,
+      repositoryId,
+    );
+
+    const mergedAfterIso = (repo as any).lastSyncedMergedAt
+      ? new Date((repo as any).lastSyncedMergedAt).toISOString()
+      : null;
+
+    const perPage = 100;
+    const maxPages = 10;
+    const prNumbersSet = new Set<number>();
+
+    for (let page = 1; page <= maxPages; page += 1) {
+      const search = await this.searchMergedPulls(token, fullName, {
+        mergedAfter: mergedAfterIso,
+        mergedBefore: null,
+        perPage,
+        page,
+      });
+
+      const numbers = (search.items ?? [])
+        .filter((x) => !!x.pull_request)
+        .map((x) => x.number);
+
+      for (const n of numbers) prNumbersSet.add(n);
+
+      if (numbers.length < perPage) break;
+    }
+
+    const prNumbers = Array.from(prNumbersSet).sort((a, b) => a - b);
+    if (!prNumbers.length) {
+      return {
+        ok: true,
+        synced: 0,
+        since: mergedAfterIso,
+        lastSyncedMergedAt: mergedAfterIso,
+      };
+    }
+
+    const details = await this.fetchPullDetailsBulk(token, fullName, prNumbers);
+
+    await this.upsertPullDetailsWithExtras(
+      repositoryId,
+      fullName,
+      token,
+      details,
+    );
+
+    await this.updateRepoLastSyncedMergedAtFromDb(repositoryId);
+
+    const refreshedRepo = await this.repoTable.findOne({
+      where: { id: String(repositoryId) },
+      select: ['id', 'lastSyncedMergedAt'] as any,
+    });
+
+    return {
+      ok: true,
+      synced: details.length,
+      since: mergedAfterIso,
+      lastSyncedMergedAt: (refreshedRepo as any)?.lastSyncedMergedAt
+        ? new Date((refreshedRepo as any).lastSyncedMergedAt).toISOString()
+        : null,
+    };
+  }
+
+  async getOne(memberId: string, repositoryId: string, id: string) {
+    await this.assertRepoAccess(memberId, repositoryId);
+
+    const row = await this.prTable.findOne({
+      where: {
+        id: String(id),
+        repositoryId: String(repositoryId),
+      } as any,
+    });
+
+    if (!row) {
+      throw new NotFoundException('Pull request not found');
+    }
+
+    return row;
+  }
+
+  async refreshOne(memberId: string, repositoryId: string, id: string) {
+    await this.assertRepoAccess(memberId, repositoryId);
+
+    const row = await this.prTable.findOne({
+      where: {
+        id: String(id),
+        repositoryId: String(repositoryId),
+      } as any,
+      select: ['id', 'prNumber', 'githubPrId', 'repositoryId'] as any,
+    });
+
+    if (!row) {
+      throw new NotFoundException('Pull request not found');
+    }
+
+    const prNumber =
+      typeof row.prNumber === 'number' && row.prNumber > 0
+        ? row.prNumber
+        : null;
+
+    if (!prNumber) {
+      throw new BadRequestException('prNumber is missing for this pull request');
+    }
+
+    const { fullName, token } = await this.getRepoAndTokenOrThrow(
+      memberId,
+      repositoryId,
+    );
+
+    const refreshed = await this.upsertSinglePullWithExtras(
+      repositoryId,
+      fullName,
+      token,
+      prNumber,
+    );
+
+    if (!refreshed) {
+      throw new BadRequestException('Unable to refresh pull request');
+    }
+
+    return {
+      ok: true,
+      id: String(refreshed.id),
+      repositoryId: String(repositoryId),
+      prNumber: refreshed.prNumber,
+      item: refreshed,
+    };
+  }
+
+  streamSyncNewlyMergedPulls(
+    memberId: string,
+    repositoryId: string,
+  ): Observable<import('@nestjs/common').MessageEvent> {
+    return new Observable<import('@nestjs/common').MessageEvent>(
+      (subscriber) => {
+        (async () => {
+          await this.assertRepoAccess(memberId, repositoryId);
+
+          const { repo, fullName, token } = await this.getRepoAndTokenOrThrow(
+            memberId,
+            repositoryId,
+          );
+
+          const mergedAfterIso = (repo as any).lastSyncedMergedAt
+            ? new Date((repo as any).lastSyncedMergedAt).toISOString()
+            : null;
+
+          const perPage = 100;
+          const maxPages = 10;
+          const prNumbersSet = new Set<number>();
+
+          for (let page = 1; page <= maxPages; page += 1) {
+            const search = await this.searchMergedPulls(token, fullName, {
+              mergedAfter: mergedAfterIso,
+              mergedBefore: null,
+              perPage,
+              page,
+            });
+
+            const numbers = (search.items ?? [])
+              .filter((x) => !!x.pull_request)
+              .map((x) => x.number);
+
+            for (const n of numbers) prNumbersSet.add(n);
+
+            if (numbers.length < perPage) break;
+          }
+
+          const prNumbers = Array.from(prNumbersSet).sort((a, b) => a - b);
+
+          subscriber.next({
+            data: {
+              type: 'start',
+              since: mergedAfterIso,
+              candidates: prNumbers.length,
+            } satisfies PullRequestSyncStreamStart,
+          });
+
+          if (!prNumbers.length) {
+            subscriber.next({
+              data: {
+                type: 'end',
+                synced: 0,
+                total: 0,
+                since: mergedAfterIso,
+                lastSyncedMergedAt: mergedAfterIso,
+              } satisfies PullRequestSyncStreamEnd,
+            });
+            subscriber.complete();
+            return;
+          }
+
+          let synced = 0;
+          for (const prNumber of prNumbers) {
+            const upserted = await this.upsertSinglePullWithExtras(
+              repositoryId,
+              fullName,
+              token,
+              prNumber,
+            );
+
+            if (!upserted) continue;
+
+            synced += 1;
+            subscriber.next({
+              data: {
+                type: 'progress',
+                synced,
+                total: prNumbers.length,
+                prNumber,
+                item: upserted,
+              } satisfies PullRequestSyncStreamProgress,
+            });
+          }
+
+          await this.updateRepoLastSyncedMergedAtFromDb(repositoryId);
+
+          const refreshedRepo = await this.repoTable.findOne({
+            where: { id: String(repositoryId) },
+            select: ['id', 'lastSyncedMergedAt'] as any,
+          });
+
+          subscriber.next({
+            data: {
+              type: 'end',
+              synced,
+              total: prNumbers.length,
+              since: mergedAfterIso,
+              lastSyncedMergedAt: (refreshedRepo as any)?.lastSyncedMergedAt
+                ? new Date((refreshedRepo as any).lastSyncedMergedAt).toISOString()
+                : null,
+            } satisfies PullRequestSyncStreamEnd,
+          });
+          subscriber.complete();
+        })().catch((err) => subscriber.error(err));
+      },
+    );
   }
 
   // =========================
@@ -302,9 +738,15 @@ export class PullRequestService {
   private async searchMergedPulls(
     token: string,
     fullName: string,
-    opts: { mergedBefore: string | null; perPage: number; page: number },
+    opts: {
+      mergedAfter?: string | null;
+      mergedBefore: string | null;
+      perPage: number;
+      page: number;
+    },
   ): Promise<GithubSearchIssuesResponse> {
     const qParts: string[] = [`repo:${fullName}`, 'is:pr', 'is:merged'];
+    if (opts.mergedAfter) qParts.push(`merged:>=${opts.mergedAfter}`);
     if (opts.mergedBefore) qParts.push(`merged:<${opts.mergedBefore}`);
 
     const q = encodeURIComponent(qParts.join(' '));
@@ -342,7 +784,7 @@ export class PullRequestService {
     fullName: string,
     prNumbers: number[],
   ): Promise<GithubPullDetail[]> {
-    const unique = Array.from(new Set(prNumbers)).slice(0, 100);
+    const unique = Array.from(new Set(prNumbers));
     const concurrency = 5;
 
     const results: GithubPullDetail[] = [];
@@ -500,6 +942,85 @@ export class PullRequestService {
     };
 
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  }
+
+  private async upsertSinglePullWithExtras(
+    repositoryId: string,
+    fullName: string,
+    token: string,
+    prNumber: number,
+  ): Promise<PullRequest | null> {
+    const detail = await this.fetchPullDetail(token, fullName, prNumber);
+
+    if (!detail.merged_at) {
+      return null;
+    }
+
+    await this.upsertPullDetailsWithStats(repositoryId, [detail]);
+
+    const githubPrId = String(detail.id);
+    const pr = await this.prTable.findOne({
+      where: {
+        repositoryId: String(repositoryId),
+        githubPrId,
+      } as any,
+      select: ['id', 'githubPrId', 'prNumber'] as any,
+    });
+
+    if (!pr) return null;
+
+    const prId = String(pr.id);
+
+    const [commits, files] = await Promise.all([
+      this.fetchPullCommits(token, fullName, prNumber, 50),
+      this.fetchPullFiles(token, fullName, prNumber, 100),
+    ]);
+
+    await this.prCommitTable.delete({ pullRequestId: prId } as any);
+    await this.prFileTable.delete({ pullRequestId: prId } as any);
+
+    const commitRows = commits
+      .map((c) => {
+        const msg = (c.commit?.message ?? '').trim();
+        const subject = msg.split('\n')[0]?.trim() ?? '';
+        if (!subject) return null;
+
+        const committedAtRaw =
+          c.commit?.committer?.date ?? c.commit?.author?.date ?? null;
+
+        return this.prCommitTable.create({
+          pullRequestId: prId,
+          sha: String(c.sha ?? ''),
+          message: subject,
+          author: (c.author?.login ?? c.commit?.author?.name ?? null) as any,
+          committedAtGithub: committedAtRaw ? new Date(committedAtRaw) : null,
+        });
+      })
+      .filter((x): x is PullRequestCommit => x != null);
+
+    const fileRows = files
+      .map((f) => {
+        const filename = String(f.filename ?? '').trim();
+        if (!filename) return null;
+
+        return this.prFileTable.create({
+          pullRequestId: prId,
+          filename,
+          status: (f.status ?? null) as any,
+          additions: typeof f.additions === 'number' ? f.additions : null,
+          deletions: typeof f.deletions === 'number' ? f.deletions : null,
+          changes: typeof f.changes === 'number' ? f.changes : null,
+        });
+      })
+      .filter((x): x is PullRequestFile => x != null);
+
+    if (commitRows.length)
+      await this.prCommitTable.save(commitRows, { chunk: 200 });
+    if (fileRows.length) await this.prFileTable.save(fileRows, { chunk: 300 });
+
+    return this.prTable.findOne({
+      where: { id: prId } as any,
+    });
   }
 
   private async upsertPullDetailsWithStats(
