@@ -293,7 +293,7 @@ CI/CD는 백엔드 기준으로 `GitHub Actions`에서 `Docker` 이미지를 구
 
 <br>
 
-![PRiido_architecture](./images/priido_architecture.png)
+![PRiido_architecture](./images/Priido_architecture.png)
 
 PRiido는 AWS VPC 내에서 Nginx + NestJS API 서버를 중심으로 동작하며, 외부로는 GitHub와 Claude API와 연동됩니다.
 
