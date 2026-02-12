@@ -4,11 +4,15 @@
 
 ## 개요
 
+<br>
+
 PRiido는 GitHub PR 정보를 기반으로 비개발자(경영진)가 이해하기 쉬운 개발 보고서를 자동으로 생성하는 서비스입니다.
 
 <br>
 
 ## 배경
+
+<br>
 
 매주 여러 저장소에서 병합된 PR을 확인하고 핵심 변경사항을 요약하는 작업은 필요 이상의 시간이 투입됩니다.
 
@@ -17,6 +21,8 @@ PRiido는 GitHub PR 정보를 기반으로 비개발자(경영진)가 이해하�
 <br>
 
 ## 목표
+
+<br>
 
 PRiido는 다음 과정을 자동화합니다.
 
@@ -27,9 +33,77 @@ PRiido는 다음 과정을 자동화합니다.
 
 <br>
 
+## 의존성
+
+<br>
+
+- **`@nestjs/config`**
+
+  환경 변수(`.env`) 로드 및 설정 관리를 위한 모듈
+
+<br>
+
+- **`@nestjs/passport`, `passport`**
+
+  NestJS에서 인증 로직을 Guard/Strategy 기반으로 구성하기 위한 라이브러리
+
+<br>
+
+- **`passport-github2`**
+
+  GitHub OAuth 로그인을 구현하기 위한 Passport 전략
+
+<br>
+
+- **`@nestjs/jwt`, `passport-jwt`**
+
+  자체 JWT 발급/검증 및 인증 처리를 위한 라이브러리
+
+<br>
+
+- **`cookie-parser`**
+
+  쿠키 기반으로 토큰을 전달하기 위해 사용
+
+<br>
+
+- **`class-validator`, `class-transformer`**
+
+  요청 DTO 검증 및 입력 데이터 변환을 위해 사용
+
+<br>
+
+- **`@nestjs/typeorm`, `typeorm`, `pg`**
+
+  PostgreSQL 연동 및 데이터 저장을 위한 드라이버와 ORM
+
+<br>
+
+- **`ioredis`**
+
+  Redis 클라이언트
+
+<br>
+
+- **`nanoid`**
+
+  충돌 가능성이 낮은 랜덤 UUID 생성을 위한 라이브러리
+
+<br>
+
+- **`@anthropic-ai/sdk`**
+
+  Claude API 호출을 위한 공식 SDK
+
+<br>
+
 ## 실행 방법
 
+<br>
+
 ### 1. 배포 환경
+
+<br>
 
 1. **[PRiido](https://priido.cloud) 접속**
 
@@ -74,6 +148,8 @@ PRiido는 다음 과정을 자동화합니다.
 <br>
 
 ### 2. 로컬 환경
+
+<br>
 
 1. **프론트엔드 저장소와 백엔드 저장소 clone**
    - 프론트엔드 저장소: https://github.com/KOKEONHO/PRiido-Front
@@ -183,88 +259,72 @@ PRiido는 다음 과정을 자동화합니다.
 
 ## 기술 스택
 
+<br>
+
 - **언어**: TypeScript
 - **프레임워크**: NestJS
 - **데이터베이스**: PostgreSQL, Redis
 - **AI**: Claude API
 - **Cloud**: AWS
-- **CI/CD**: GitHub Actions, Elastic Container Registry, Code Deploy
+- **CI/CD**: GitHub Actions, Elastic Container Registry, CodeDeploy
 
 <br>
 
 ## 기술 스택 선정 이유
 
-`NestJS`, `TypeScript`, `PostgreSQL`은 스위그 팀에서 실제로 사용하는 백엔드 스택이기 때문에 선택했습니다.
+<br>
 
-최초에는 과제 테스트처럼 제한 시간 내에 요구사항을 구현해야하는 상황에서 익숙한 Spring Boot를 사용하는 것이 낫지 않을까 고민했습니다.
+`NestJS`, `TypeScript`, `PostgreSQL`은 스위그 팀에서 실제로 사용하는 백엔드 스택과 일치하기 때문에 선택했습니다.
 
-하지만 과제 테스트의 목적이 구현보다도 **문제 정의**, **선택과 근거**, **고민과 트레이드오프**, **트러블 슈팅** 쪽에 무게를 더 두기 때문에, 기술 스택을 맞춘 상태에서 해당 지표들을 챙기는 쪽이 더 유리할 것이라 판단했습니다.
+과제 요구사항을 "구현만 빠르게 끝내는 것"보다, **실제 협업 환경에서 바로 적용 가능한 형태로 문제를 정의하고 설계 근거를 남기는 것**이 더 중요하다고 판단했고, 그래서 스위그의 컨텍스트에 맞춰 진행하는 편이 적합하다고 생각했습니다.
 
-배포는 AWS를 클라우드 컴퓨팅 서비스 중 가장 많이 사용해봤기 때문에 선택했습니다.
+배포는 가장 많이 다뤄본 클라우드 컴퓨팅 서비스인 `AWS`를 채택했습니다.
 
-CI/CD도 백엔드의 경우에는 GitHub Actions에서 Docker 이미지를 빌드해 Elastic Container Registry에 push한 뒤, Code Deploy를 통해 배포가 진행되도록 구성했습니다.
+CI/CD는 백엔드 기준으로 `GitHub Actions`에서 `Docker` 이미지를 구워서 `Elastic Container Registry`에 push한 뒤, `CodeDeploy`로 배포가 진행되도록 구성했습니다.
 
 <br>
 
 ## 아키텍처
 
+<br>
+
 ![PRiido_architecture](./images/PRiido_architecture.png)
 
-<br>
-
-## 의존성
-
-- **`@nestjs/config`**
-  환경 변수(`.env`) 로드 및 설정 관리를 위한 모듈
+PRiido는 AWS VPC 내에서 Nginx + NestJS API 서버를 중심으로 동작하며, 외부로는 GitHub와 Claude API와 연동됩니다.
 
 <br>
 
-- **`@nestjs/passport`, `passport`**
-  NestJS에서 인증 로직을 Guard/Strategy 기반으로 구성하기 위한 라이브러리
+- **Nginx**
+
+  프론트 정적 리소스 서빙 및 리버스 프록시 역할을 합니다.
+
+  `/api` 프리픽스가 붙은 요청을 NestJS로 전달합니다.
 
 <br>
 
-- **`passport-github2`**
-  GitHub OAuth 로그인을 구현하기 위한 Passport 전략
+- **NestJS**
+
+  핵심 비즈니스 로직을 담당합니다.
+
+  GitHub OAuth 로그인 및 GitHub API 호출을 통해 사용자의 계정, 조직, 저장소, PR을 수집합니다.
 
 <br>
 
-- **`@nestjs/jwt`, `passport-jwt`**
-  자체 JWT 발급/검증 및 인증 처리를 위한 라이브러리
+- **Redis**
+
+  현재는 자체 Refresh Token의 저장에 사용되고 있습니다.
 
 <br>
 
-- **`cookie-parser`**
-  쿠키 기반으로 토큰을 전달하기 위해 사용
+- **PostgreSQL**
 
-<br>
-
-- **`class-validator`, `class-transformer`**
-  요청 DTO 검증 및 입력 데이터 변환을 위해 사용
-
-<br>
-
-- **`@nestjs/typeorm`, `typeorm`, `pg`**
-  PostgreSQL 연동 및 데이터 저장을 위한 드라이버와 ORM
-
-<br>
-
-- **`ioredis`**
-  Redis 클라이언트
-
-<br>
-
-- **`nanoid`**
-  충돌 가능성이 낮은 랜덤 UUID 생성을 위한 라이브러리
-
-<br>
-
-- **`@anthropic-ai/sdk`**
-  Claude API 호출을 위한 공식 SDK
+  외부에서 직접 접근할 수 없도록 Private Subnet에 두고 NestJS만 접근하도록 구성했습니다.
 
 <br>
 
 ## ERD
+
+<br>
 
 ![PRiido ERD](./images/priido_erd.png)
 
@@ -272,7 +332,73 @@ CI/CD도 백엔드의 경우에는 GitHub Actions에서 Docker 이미지를 빌�
 
 <br>
 
-## 문제 정의
+## 기능 정의
+
+<br>
+
+### MVP
+
+<br>
+
+저는 이번 과제의 핵심을 '여러 저장소의 PR 중 보고서에 필요한 PR을 안정적으로 수집하고, 비개발자도 이해 가능한 보고서를 생성, 저장, 조회 가능하게 만드는 것"으로 정의했습니다.
+
+따라서 MVP에서는 **보고서 생성까지의 플로우**를 우선 구현했습니다.
+
+<br>
+
+1. **GitHub OAuth 로그인으로 유저 데이터 확보**
+
+2. **저장소 선택/등록 및 PR 병합된 PR 가져오기**
+
+3. **선택한 PR로 비개발자도 이해하기 쉬운 보고서 생성 및 저장**
+
+4. **보고서 목록 & 상세 조회**
+
+<br>
+
+### 고도화
+
+<br>
+
+MVP를 구현하고 나니 "요구사항을 만족했다"는 것과 "서비스로서 자연스럽게 굴러간다"는 것은 확연히 다르다는 것을 바로 체감했습니다.
+
+과제 요구사항을 그대로 따르면 구현은 깔끔하고 단순했습니다.
+
+하지만 실제 사용자는 PRiido를 사용하고 싶어도 사용할 수 없는 문제가 발생한다는 것을 깨달았고, 그 순간부터 고도화는 이를 개선하기 위한 방향으로 진행됐습니다.
+
+과제를 하면서 재미있었던 점은, 하나를 고치면 다음 문제가 자연스레 따라붙었다는 것입니다.
+
+그래서 이번 고도화는 "기능 추가"보다는 **문제 해결 → 다른 문제 발생 → 트레이드 오프 비교 → 설계 수정**의 반복이었습니다.
+
+그 흐름을 아래와 같이 정리해봤습니다.
+
+<br>
+
+1. **정적인 기간의 한계**
+
+   ![static_term](./images/static_term.png)
+
+   과제 테스트의 요구사항에는 '지난 주'에 병합된 PR 정보를 수집하라고 나와있습니다.
+
+   하지만 서비스 관점에서 정적인 기간만으로는 한계가 명확했습니다.
+
+   예를 들어 지난 주에 병합된 PR이 없는 저장소라면, 사용자는 보고서를 만들기 위한 PR을 아예 확보하지 못합니다.
+
+   그래서 '지난 주 PR만 수집'이 아니라 **기간에 국한되지 않고 PR을 누적해서 확인하고 선택할 수 있는 형태**가 서비스 목적에 더 부합한다고 판단했습니다.
+
+   결과적으로 사용자가 저장소를 등록하면 PRiido는 해당 저장소의 PR을 기간에 상관 없이 가져와서 사용자가 이 중 보고서 생성에 쓸 PR을 선택하도록 했습니다.
+
+<br>
+
+2. **반복적인 GitHub API 호출**
+
+   기간 제한을 없애고 PR을 누적해서 보여주려면, 결국 저장소에 진입할 때마다 GitHub API를 호출해서 PR 목록을 매번 가져오게 됩니다.
+
+<br>
+
+## 트러블 슈팅
+
+### GitHub Search API와
 
 <br>
 
