@@ -445,7 +445,9 @@ export class PullRequestService {
         : null;
 
     if (!prNumber) {
-      throw new BadRequestException('prNumber is missing for this pull request');
+      throw new BadRequestException(
+        'prNumber is missing for this pull request',
+      );
     }
 
     const { fullName, token } = await this.getRepoAndTokenOrThrow(
@@ -573,7 +575,9 @@ export class PullRequestService {
               total: prNumbers.length,
               since: mergedAfterIso,
               lastSyncedMergedAt: (refreshedRepo as any)?.lastSyncedMergedAt
-                ? new Date((refreshedRepo as any).lastSyncedMergedAt).toISOString()
+                ? new Date(
+                    (refreshedRepo as any).lastSyncedMergedAt,
+                  ).toISOString()
                 : null,
             } satisfies PullRequestSyncStreamEnd,
           });
