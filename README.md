@@ -27,6 +27,160 @@ PRiido는 다음 과정을 자동화합니다.
 
 <br>
 
+## 실행 방법
+
+### 1. 배포 환경
+
+1. **[PRiido](https://priido.cloud) 접속**
+
+   https://priido.cloud
+
+   배포 중인 도메인입니다.
+
+<br>
+
+2. **`GitHub 로그인` 버튼을 클릭하여 로그인**
+
+<br>
+
+3. **메인에 보이는 접근 가능한 조직 중 하나(본인 계정 포함) 선택**
+
+<br>
+
+4. **하단에서 해당 조직(또는 본인 계정)의 저장소를 확인 가능**
+
+<br>
+
+5. **등록할 저장소를 선택(단일, 복수)하고 `선택한 저장소 등록` 버튼을 클릭**
+
+<br>
+
+6. **`등록된 저장소` 섹션에서 특정 저장소를 클릭하여 진입**
+
+   최초 진입 시, PRiido에서 해당 저장소의 PR을 30개씩 병합 시점 내림차순으로 가져옵니다.
+
+   PRiido에 반영되지 않은 신규 PR이 병합됐을 경우, `PR 가져오기` 버튼을 클릭하여 새로 가져올 수 있습니다.
+
+   이미 가져온 PR에서 수정 이력이 발생했을 경우, PR에 개별로 할당된 새로고침 버튼을 클릭하여 stale한 이전 값들을 신규 값들로 업데이트 할 수 있습니다.
+
+<br>
+
+7. **보고서로 작성할 내용의 PR을 선택**
+
+<br>
+
+8. **`보고서 만들기` 클릭하여 보고서 작성**
+
+<br>
+
+### 2. 로컬 환경
+
+1. **프론트엔드 저장소와 백엔드 저장소 clone**
+   - 프론트엔드 저장소: https://github.com/KOKEONHO/PRiido-Front
+   - 백엔드 저장소: https://github.com/KOKEONHO/PRiido
+
+<br>
+
+2. **프론트엔드와 백엔드 의존성 설치**
+
+   ```
+   # PRiido-Front
+   npm install
+
+   # PRiido
+   pnpm install
+   ```
+
+<br>
+
+3. **GitHub OAuth App 생성 및 설정**
+
+   GitHub OAuth는 본인 계정으로 OAuth App을 생성해서 Cliend ID/Secret을 발급 받아야 합니다.
+
+   보안상 저장소에 제 키를 포함하지 않았습니다.
+   - Homepage URL: `http://localhost:5173`
+   - Authorization callback URL: `http://localhost:3000/api/auth/github/callback`
+
+<br>
+
+4. **백엔드 프로젝트 루트에 `.env` 생성**
+
+   아래와 같은 `.env` 파일이 필요합니다.
+
+   ```
+   PORT=3000
+   NODE_ENV=local
+
+   # Dev
+   FRONT_ORIGIN=http://localhost:5173
+
+   # DB
+   DB_HOST=localhost
+   DB_PORT=5432
+   DB_USERNAME=postgres
+   DB_PASSWORD=postgres
+   DB_NAME=priido
+
+   DB_SSL_ENABLED=false
+
+   # Redis
+   REDIS_HOST=localhost
+   REDIS_PORT=6379
+   REDIS_PASSWORD=
+   REDIS_DB=0
+
+   # GitHub OAuth (직접 OAuth App 생성 후 입력)
+   GITHUB_CLIENT_ID=
+   GITHUB_CLIENT_SECRET=
+   GITHUB_CALLBACK_URL=http://localhost:3000/api/auth/github/callback
+
+   # JWT
+   JWT_SECRET=
+
+   # expires in seconds
+   JWT_AT_EXPIRES_SEC=900
+   JWT_RT_EXPIRES_SEC=1209600
+
+   # Cookie
+   RT_COOKIE_NAME=priido_rt
+   COOKIE_SECURE=false
+   COOKIE_SAMESITE=lax
+
+   # Claude (직접 발급 후 입력)
+   ANTHROPIC_API_KEY=
+   CLAUDE_MODEL=claude-opus-4-6
+   ```
+
+<br>
+
+5. **PostgreSQL / Redis 실행**
+   - PostgreSQL: `5432`
+   - Redis: `6379`
+
+<br>
+
+6. **백엔드 서버 실행**
+
+   ```
+   # PRiido
+   pnpm start:dev
+   ```
+
+<br>
+
+7. **프론트엔드 서버 실행**
+
+   ```
+   # PRiido-Front
+   npm run dev
+   ```
+
+<br>
+
+8. **브라우저에서 `http://localhost:5173` 접속 후 동작 확인**
+
+<br>
+
 ## 기술 스택
 
 - **언어**: TypeScript
@@ -38,59 +192,9 @@ PRiido는 다음 과정을 자동화합니다.
 
 <br>
 
-## 실행 방법
-
-<br>
-
-### 1. 배포 환경에서 바로 확인하기
-
-1. [PRiido](https://priido.cloud)에 접속합니다.
-
-<br>
-
-2. `GitHub 로그인` 버튼을 클릭하여 로그인합니다.
-
-<br>
-
-3. 메인에 보이는 접근 가능한 조직 중 하나를 선택합니다.
-
-<br>
-
-4. 선택하면 하단에서 해당 조직의 저장소를 확인할 수 있습니다.
-
-<br>
-
-5. 등록할 저장소를 선택(단일, 복수 가능)하고 '선택한 저장소 등록' 버튼을 클릭합니다.
-
-<br>
-
-6. '등록된 저장소' 섹션에서 특정 저장소를 클릭하여 진입합니다.
-
-<br>
-
-7. 최초에는 PRiido에서 알아서 GitHub에 API를 날려서 해당 저장소의 PR들을 가져옵니다.
-
-<br>
-
-8. PRiido에 반영되지 않은 신규 PR은 'PR 가져오기' 버튼을 클릭하여 새로 가져올 수 있습니다.
-
-<br>
-
-9. 만약 가져온 PR이 이미 PRiido에서 관리되는 상태라면, 개별 새로고침을 눌러 stale한 이전 값들을 신규 값들로 upsert할 수 있습니다.
-
-<br>
-
-10. 보고서로 작성할 내용의 PR을 선택한 뒤, '보고서 만들기'를 클릭하면 선택된 PR로 작성된 보고서가 생성됩니다.
-
-<br>
-
-### 2. 로컬에서 실행하기
-
-1. PRiido의
-
 ## 기술 스택 선정 이유
 
-NestJS, TypeScript, PostgreSQL은 스위그 팀에서 실제로 사용하는 백엔드 스택이기 때문에 선택했습니다.
+`NestJS`, `TypeScript`, `PostgreSQL`은 스위그 팀에서 실제로 사용하는 백엔드 스택이기 때문에 선택했습니다.
 
 최초에는 과제 테스트처럼 제한 시간 내에 요구사항을 구현해야하는 상황에서 익숙한 Spring Boot를 사용하는 것이 낫지 않을까 고민했습니다.
 
